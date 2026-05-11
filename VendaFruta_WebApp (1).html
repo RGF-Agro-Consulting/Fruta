@@ -210,27 +210,15 @@ async function lerPDF(f) {
     const b64 = await toBase64(f);
     pdfB64 = b64.split(',')[1];
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':CLAUDE_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1000,
-        messages:[{role:'user',content:[
-          {type:'document',source:{type:'base64',media_type:f.type||'application/pdf',data:pdfB64}},
-          {type:'text',text:`Extrai os dados deste calibrado de fruta da Montosa. Responde APENAS com JSON válido, sem texto extra:
-{"referencia":"mia26-000531","data":"2026-04-16","cliente":"Montosa","semana":12,"linhas":[{"artigo":"Aguacate Hass CAT I","kg":19128.0,"preco_kg":3.00,"total":57384.0},{"artigo":"Aguacate Hass CAT II","kg":1475.0,"preco_kg":1.20,"total":1770.0}],"total_liquidar":59154.00}
-Regras: inclui só linhas com kg>0; data YYYY-MM-DD; números sem € nem pontos de milhar.`}
-        ]}]
-      })
+    const res = await api('POST', {
+      acao: 'lerPDF',
+      dados: pdfB64,
+      tipo: f.type || 'application/pdf'
     });
 
-    if(!res.ok) { const e=await res.json(); throw new Error(e.error?.message||'Erro API'); }
-    const data = await res.json();
-    const txt = data.content[0].text;
-    const m = txt.match(/\{[\s\S]*\}/);
-    if(!m) throw new Error('Resposta inválida da IA');
-    const d = JSON.parse(m[0]);
+    if(!res.ok) throw new Error(res.erro || 'Erro ao ler PDF');
+    const txt = JSON.stringify(res.dados);
+    const d = res.dados;
 
     preencherForm(d);
     setEstado('ok','✓ Dados lidos com sucesso! Verifica e corrige se necessário antes de guardar.');
