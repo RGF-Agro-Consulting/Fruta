@@ -204,20 +204,30 @@ async function lerPDF(f) {
   if(!f) return;
   pdfNome = f.name;
   document.getElementById('pdf-label').textContent = '📎 '+f.name;
-  setEstado('loading','<span class="spin"></span>A ler o PDF com inteligência artificial…');
+  setEstado('loading','<span class="spin"></span>A converter e ler o PDF…');
 
   try {
     const b64 = await toBase64(f);
     pdfB64 = b64.split(',')[1];
 
+    let dadosEnvio, tipoEnvio;
+    if (f.type && f.type.startsWith('image/')) {
+      const imgB64 = await comprimirImagem(b64);
+      dadosEnvio = imgB64.split(',')[1];
+      tipoEnvio = 'image/jpeg';
+    } else {
+      const imgB64 = await pdfParaImagem(b64);
+      dadosEnvio = imgB64.split(',')[1];
+      tipoEnvio = 'image/jpeg';
+    }
+
     const res = await api('POST', {
       acao: 'lerPDF',
-      dados: pdfB64,
-      tipo: f.type || 'application/pdf'
+      dados: dadosEnvio,
+      tipo: tipoEnvio
     });
 
     if(!res.ok) throw new Error(res.erro || 'Erro ao ler PDF');
-    const txt = JSON.stringify(res.dados);
     const d = res.dados;
 
     preencherForm(d);
@@ -507,6 +517,51 @@ function actualizarFiltros() {
 
 function v(id){return document.getElementById(id).value.trim();}
 function toBase64(f){return new Promise((r,j)=>{const rd=new FileReader();rd.onload=()=>r(rd.result);rd.onerror=j;rd.readAsDataURL(f);});}
+
+async function comprimirImagem(b64) {
+  return new Promise(r=>{
+    const img=new Image();
+    img.onload=()=>{
+      const maxW=1200,maxH=1600;
+      let w=img.width,h=img.height;
+      if(w>maxW){h=h*maxW/w;w=maxW;}
+      if(h>maxH){w=w*maxH/h;h=maxH;}
+      const c=document.createElement('canvas');
+      c.width=w;c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      r(c.toDataURL('image/jpeg',0.7));
+    };
+    img.src=b64;
+  });
+}
+
+async function pdfParaImagem(pdfB64Data) {
+  // Usa pdf.js para renderizar a primeira página
+  return new Promise(async(resolve, reject)=>{
+    try {
+      if(!window.pdfjsLib) {
+        // Carrega pdf.js dinamicamente
+        await new Promise((r,j)=>{
+          const s=document.createElement('script');
+          s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+          s.onload=r; s.onerror=j;
+          document.head.appendChild(s);
+        });
+        pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+      const pdfData = atob(pdfB64Data.split(',')[1]||pdfB64Data);
+      const arr = new Uint8Array(pdfData.length);
+      for(let i=0;i<pdfData.length;i++) arr[i]=pdfData.charCodeAt(i);
+      const pdf = await pdfjsLib.getDocument({data:arr}).promise;
+      const page = await pdf.getPage(1);
+      const viewport = page.getViewport({scale:1.5});
+      const canvas = document.createElement('canvas');
+      canvas.width=viewport.width; canvas.height=viewport.height;
+      await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+      resolve(canvas.toDataURL('image/jpeg',0.8));
+    } catch(e){ reject(e); }
+  });
+}
 function setSyncStatus(ok,txt){document.getElementById('sync-dot').className='sync-dot'+(ok?'':' off');document.getElementById('sync-txt').textContent=txt;}
 function setBtnLoad(id,l,txt){const b=document.getElementById(id);b.disabled=l;b.textContent=txt;}
 let tt;function toast(msg,dur=2500){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>el.classList.remove('show'),dur);}
